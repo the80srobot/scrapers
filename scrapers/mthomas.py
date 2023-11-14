@@ -1,9 +1,9 @@
 import pathlib
 import lxml.html
-from lxml.cssselect import CSSSelector
 from typing import List, Dict, Any, Union
 import requests
 import sys
+from lxml.etree import XPath
 
 SAFARI_UAGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
 
@@ -33,7 +33,7 @@ def get_player_page(
 
 
 def player_tracks(doc: lxml.etree.Element) -> List[Dict[str, str]]:
-    sel = CSSSelector("items")
+    sel = XPath("descendant-or-self::items")
     items = sel(doc)[0]
     return [
         {
@@ -71,6 +71,20 @@ def get_playlist(
         )
 
 
+def download_file(file_path: pathlib.Path, url: str):
+    if file_path.is_file():
+        sys.stderr.write("\t\t[EXISTS]\n")
+        # Can't check the checksum, because it's bogus.
+        return
+
+    with requests.get(url=url, stream=True) as resp:
+        resp.raise_for_status()
+        with open(file_path, "wb") as f:
+            for chunk in resp.iter_content(chunk_size=8192):
+                f.write(chunk)
+        sys.stderr.write("\t\t[OK]\n")
+
+
 def scrape_playlist(pl: Dict[str, Union[str, List[Dict[str, str]]]], out_path: str):
     out_dir = pathlib.Path(out_path) / pl["title"]
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -78,17 +92,8 @@ def scrape_playlist(pl: Dict[str, Union[str, List[Dict[str, str]]]], out_path: s
     i = 0
     for track in pl["tracks"]:
         i += 1
-        sys.stderr.write(f"\tGetting track {i}/{len(pl['tracks'])} - {track['name']}...\n")
+        sys.stderr.write(
+            f"\tGetting track {i}/{len(pl['tracks'])} - {track['name']}...\n"
+        )
         file_path = out_dir / track["name"]
-
-        if file_path.is_file():
-            sys.stderr.write("\t\t[EXISTS]\n")
-            # Can't check the checksum, because it's bogus.
-            continue
-
-        with requests.get(url=track["url"], stream=True) as resp:
-            resp.raise_for_status()                
-            with open(file_path, "wb") as f:
-                for chunk in resp.iter_content(chunk_size=8192):
-                    f.write(chunk)
-            sys.stderr.write("\t\t[OK]\n")
+        download_file(file_path=file_path, url=track["url"])
